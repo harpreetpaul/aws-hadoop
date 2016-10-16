@@ -11,7 +11,7 @@ class test_hadoop_nodes_public_access(unittest.TestCase):
     host_key_file = None
 
     def setUp(self):
-        self.config.read('aws_hadoop.hosts')
+        self.config.read('aws_hadoop_hosts.cfg')
         self.host_user = 'ubuntu'
         self.host_key_file = "~/.ssh/hadoopec2cluster.pem"
 

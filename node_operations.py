@@ -17,7 +17,7 @@ class HadoopCluster:
 
     def __init__(self):
         config = SafeConfigParser()
-        config.read('aws_hadoop.hosts')
+        config.read('aws_hadoop_hosts.cfg')
         for item in config.items("main"):
             name = item[0]
             private_ip_address = eval(item[1])['private_ip_address']

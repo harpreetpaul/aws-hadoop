@@ -25,7 +25,7 @@ class test_aws_ec2_ops(unittest.TestCase):
             self.assertEqual(instance, self.ec2.getInstance(instance).tags['Name'])
 
     def test_hadoop_hosts_file(self):
-        """Validating aws_hadoop.hosts file with actual ec2 instance details (public ip address, private ip address and dns name)."""
+        """Validating aws_hadoop_hosts.cfg file with actual ec2 instance details (public ip address, private ip address and dns name)."""
         hadoop_nodes = HadoopCluster().nodes
 
         for node in hadoop_nodes:

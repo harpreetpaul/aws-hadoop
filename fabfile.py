@@ -1,11 +1,11 @@
 __author__ = 'rakesh.varma'
-from config_operations import *
 from node_operations import *
+from config_operations import *
+from aws_ec2_operations import *
 import time
 from fabric_helper import *
 
 c = ConfigOps()
-
 
 @task
 def create_aws_hadoop_cluster():
@@ -13,19 +13,19 @@ def create_aws_hadoop_cluster():
 
 @task
 def update_config():
-    from ConfigParser import SafeConfigParser
-    c = SafeConfigParser()
-    c.add_section("main")
-    hadoop_cfgfile = open("aws_hadoop.hosts", 'w')
-    d = {'private_ip_address':'0:0:0:0', 'ip_address':'192.168.0.1', 'dns_name':'testbox'}
-    c.set("main",'hadoopnamenode', str(d))
-    c.write(hadoop_cfgfile)
-    hadoop_cfgfile.close()
+    ec2 = aws_ec2_operations(
+        region=c.aws_region,
+        access_key_id=c.aws_access_key_id,
+        secret_access_key=c.aws_secret_access_key
+    )
+    ec2.update_tags(c.all_nodes)
+
 
 @task
 def test_config():
     hadoop_cluster = HadoopCluster()
     print hadoop_cluster.getNode(c.hadoop_namenode).ip_address
+
 
 @task
 def install_salt():
@@ -48,7 +48,7 @@ def install_salt():
             host_user = c.aws_user,
             host_key_file = c.aws_key_location
         )
-        fb.install_salt_minion(master = hadoop_cluster.getNode(c.saltmaster).ip_address, minion = host)
+        fb.install_salt_minion(master = hadoop_cluster.getNode(c.saltmaster).private_ip_address, minion = host)
     time.sleep(5)
     #Accept Salt minions keys in Salt Master.
     fb = fabric_helper(
@@ -114,10 +114,10 @@ def install_hadoop_packages():
     env.host_string = hadoop_cluster.getNode(c.saltmaster).ip_address
     env.user = c.aws_user
     env.key_filename = c.aws_key_location
-    sudo('salt "*" cmd.run "wget http://apache.mirror.gtcomm.net/hadoop/common/current/hadoop-2.7.1.tar.gz -P /home/ubuntu"')
-    sudo('salt "*" cmd.run "tar -xzvf /home/ubuntu/hadoop-2.7.1.tar.gz -C /home/ubuntu"')
-    sudo('salt "*" cmd.run "mv /home/ubuntu/hadoop-2.7.1 /home/ubuntu/hadoop"')
-    sudo('salt "*" cmd.run "rm -rf /home/ubuntu/hadoop-2.7.1.tar.gz"')
+    sudo('salt "*" cmd.run "wget https://dist.apache.org/repos/dist/release/hadoop/common/hadoop-2.7.3/hadoop-2.7.3.tar.gz -P /home/ubuntu"')
+    sudo('salt "*" cmd.run "tar -xzvf /home/ubuntu/hadoop-2.7.3.tar.gz -C /home/ubuntu"')
+    sudo('salt "*" cmd.run "mv /home/ubuntu/hadoop-2.7.3 /home/ubuntu/hadoop"')
+    sudo('salt "*" cmd.run "rm -rf /home/ubuntu/hadoop-2.7.3.tar.gz"')
     #changing the hadoop directory owner to ubuntu.
     sudo('salt "*" cmd.run "sudo chown -R ubuntu /home/ubuntu/hadoop"')
     cmd = "echo '{0}' >> /home/ubuntu/.bashrc".format("export HADOOP_CONF=/home/ubuntu/hadoop/etc/hadoop")
@@ -217,6 +217,24 @@ def start_services_hadoop_master():
     run("jps")
 
 @task
+def stop_services_hadoop_master():
+    hadoop_cluster = HadoopCluster()
+    env.host_string = hadoop_cluster.getNode(c.hadoop_namenode).ip_address
+    env.user = c.aws_user
+    env.key_filename = c.aws_key_location
+    run("/home/ubuntu/hadoop/sbin/stop-dfs.sh")
+    run("jps")
+
+@task
+def restart_services_hadoop_master():
+    hadoop_cluster = HadoopCluster()
+    env.host_string = hadoop_cluster.getNode(c.hadoop_namenode).ip_address
+    env.user = c.aws_user
+    env.key_filename = c.aws_key_location
+    run("/home/ubuntu/hadoop/sbin/start-dfs.sh")
+    run("jps")
+
+@task
 def run_pi_test():
     hadoop_cluster = HadoopCluster()
     env.host_string = hadoop_cluster.getNode(c.hadoop_namenode).ip_address
@@ -244,13 +262,17 @@ def install_hive():
 @task
 def provision_hadoop_cluster():
     #execute(create_aws_hadoop_cluster)
-    execute(install_salt)
-    execute(setup_hadoop_nodes_access)
-    execute(install_jdk_hadoop_nodes)
-    execute(install_hadoop_packages)
-    execute(deploy_hadoop_config)
-    execute(setup_hadoop_master_slave)
-    execute(start_services_hadoop_master)
+    execute(update_config)
+    #execute(install_salt)
+    #execute(setup_hadoop_nodes_access)
+    #execute(install_jdk_hadoop_nodes)
+    #execute(install_hadoop_packages)
+    #execute(deploy_hadoop_config)
+    #execute(setup_hadoop_master_slave)
+    #execute(start_services_hadoop_master)
+    #execute(restart_services_hadoop_master)
+    execute(stop_services_hadoop_master)
+
 
 
 
