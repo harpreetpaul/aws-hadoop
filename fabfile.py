@@ -3,6 +3,7 @@ from node_operations import *
 from config_operations import *
 from aws_ec2_operations import *
 import time
+import random
 from fabric_helper import *
 
 c = ConfigOps()
@@ -134,42 +135,72 @@ def install_hadoop_packages():
 def deploy_hadoop_config():
     hadoop_cluster = HadoopCluster()
     hadoopnamenode = hadoop_cluster.getNode(c.hadoop_namenode).dns_name
+    hadoopnamenode_privateip = hadoop_cluster.getNode(c.hadoop_namenode).private_ip_address
 
     hadoop_env_command = "sed -i -e s/'\\\${JAVA_HOME}'/'\\\/usr\\\/lib\\\/jvm\\\/java-7-oracle'/ /home/ubuntu/hadoop/etc/hadoop/hadoop-env.sh"
     core_site_text = """<?xml version=\\""1.0\\"" encoding=\\""UTF-8\\""?>
                         <?xml-stylesheet type=\\""text/xsl\\"" href=\\""configuration.xsl\\""?>
                         <configuration>
-                        <property>
-                        <name>fs.default.name</name>
-                        <value>hdfs://{0}:8020</value>
-                        </property>
-                        <property>
-                        <name>hadoop.tmp.dir</name>
-                        <value>/home/ubuntu/hdfstmp</value>
-                        </property>
+                            <property>
+                                <name>fs.default.name</name>
+                                <value>hdfs://{0}:8020</value>
+                            </property>
+                            <property>
+                                <name>hadoop.tmp.dir</name>
+                                <value>/home/ubuntu/hdfstmp</value>
+                            </property>
                         </configuration>""".format(hadoopnamenode)
 
     hdfs_site_text = """<?xml version=\\""1.0\\"" encoding=\\""UTF-8\\""?>
                         <?xml-stylesheet type=\\""text/xsl\\"" href=\\""configuration.xsl\\""?>
                         <configuration>
-                        <property>
-                        <name>dfs.replication</name>
-                        <value>2</value>
-                        </property>
-                        <property>
-                        <name>dfs.permissions</name>
-                        <value>false</value>
-                        </property>
+                            <property>
+                                <name>dfs.replication</name>
+                                <value>2</value>
+                            </property>
+                            <property>
+                                <name>dfs.permissions</name>
+                                <value>false</value>
+                            </property>
                         </configuration>"""
+
     mapred_site_text ="""<?xml version=\\""1.0\\"" encoding=\\""UTF-8\\""?>
                         <?xml-stylesheet type=\\""text/xsl\\"" href=\\""configuration.xsl\\""?>
                         <configuration>
-                        <property>
-                        <name>mapred.job.tracker</name>
-                        <value>hdfs://{0}:8021</value>
-                        </property>
+                            <property>
+                                <name>mapreduce.framework.name</name>
+                                <value>yarn</value>
+                            </property>
+                            <!--<property>
+                                <name>mapred.job.tracker</name>
+                                <value>hdfs://{0}:8021</value>
+                            </property>-->
                         </configuration>""".format(hadoopnamenode)
 
+    yarn_site_text ="""<?xml version=\\""1.0\\"" encoding=\\""UTF-8\\""?>
+                        <?xml-stylesheet type=\\""text/xsl\\"" href=\\""configuration.xsl\\""?>
+                        <configuration>
+                            <property>
+                                <name>yarn.resourcemanager.hostname</name>
+                                <value>{0}</value>
+                            </property>
+                            <property>
+                                <name>yarn.nodemanager.aux-services</name>
+                                <value>mapreduce_shuffle</value>
+                            </property>
+                            <property>
+                               <name>yarn.nodemanager.aux-services.mapreduce.shuffle.class</name>
+                               <value>org.apache.hadoop.mapred.ShuffleHandler</value>
+                            </property>
+                            <property>
+                            <name>yarn.nodemanager.local-dirs</name>
+                                <value>/home/ubuntu/yarn/data</value>
+                            </property>
+                            <property>
+                            <name>yarn.nodemanager.logs-dirs</name>
+                                <value>/home/ubuntu/yarn/logs</value>
+                            </property>
+                        </configuration>""".format(hadoopnamenode_privateip)
 
     env.host_string = hadoop_cluster.getNode(c.saltmaster).ip_address
     env.user = c.aws_user
@@ -181,6 +212,9 @@ def deploy_hadoop_config():
     sudo('salt "*" cmd.run "{0}"'.format(hdfs_site_command))
     mapred_site_command = "echo '{0}' > /home/ubuntu/hadoop/etc/hadoop/mapred-site.xml".format(mapred_site_text)
     sudo('salt "*" cmd.run "{0}"'.format(mapred_site_command))
+    yarn_site_command = "echo '{0}' > /home/ubuntu/hadoop/etc/hadoop/yarn-site.xml".format(yarn_site_text)
+    sudo('salt "*" cmd.run "{0}"'.format(yarn_site_command))
+
 
 @task
 def setup_hadoop_master_slave():
@@ -214,6 +248,7 @@ def start_services_hadoop_master():
     env.key_filename = c.aws_key_location
     run("/home/ubuntu/hadoop/bin/hadoop namenode -format -force")
     run("/home/ubuntu/hadoop/sbin/start-dfs.sh")
+    run("/home/ubuntu/hadoop/sbin/start-yarn.sh")
     run("jps")
 
 @task
@@ -223,6 +258,7 @@ def stop_services_hadoop_master():
     env.user = c.aws_user
     env.key_filename = c.aws_key_location
     run("/home/ubuntu/hadoop/sbin/stop-dfs.sh")
+    run("/home/ubuntu/hadoop/sbin/stop-yarn.sh")
     run("jps")
 
 @task
@@ -232,6 +268,7 @@ def restart_services_hadoop_master():
     env.user = c.aws_user
     env.key_filename = c.aws_key_location
     run("/home/ubuntu/hadoop/sbin/start-dfs.sh")
+    run("/home/ubuntu/hadoop/sbin/start-yarn.sh")
     run("jps")
 
 @task
@@ -241,7 +278,18 @@ def run_pi_test():
     env.user = c.aws_user
     env.key_filename = c.aws_key_location
     with cd('/home/ubuntu/hadoop/share/hadoop/mapreduce'):
-        run('/home/ubuntu/hadoop/bin/hadoop jar hadoop-mapreduce-examples-2.7.1.jar pi 10 1000000')
+        run('/home/ubuntu/hadoop/bin/hadoop jar hadoop-mapreduce-examples-2.7.3.jar pi 10 1000000')
+
+def run_wordcount_test():
+    hadoop_cluster = HadoopCluster()
+    env.host_string = hadoop_cluster.getNode(c.hadoop_namenode).ip_address
+    env.user = c.aws_user
+    env.key_filename = c.aws_key_location
+    current_time = random.randint(0,10000)
+    run(("/home/ubuntu/hadoop/bin/hdfs dfs -mkdir input-{0}").format(current_time))
+    run(("/home/ubuntu/hadoop/bin/hdfs dfs -copyFromLocal /home/ubuntu/hadoop/README.txt input-{0}").format(current_time))
+    with cd('/home/ubuntu/hadoop/share/hadoop/mapreduce'):
+        run(('/home/ubuntu/hadoop/bin/hadoop jar hadoop-mapreduce-examples-2.7.3.jar wordcount input-{0} output-{0}').format(current_time))
 
 @task
 def install_hive():
@@ -263,6 +311,7 @@ def install_hive():
 def provision_hadoop_cluster():
     #execute(create_aws_hadoop_cluster)
     execute(update_config)
+    #execute(stop_services_hadoop_master)
     #execute(install_salt)
     #execute(setup_hadoop_nodes_access)
     #execute(install_jdk_hadoop_nodes)
@@ -270,8 +319,11 @@ def provision_hadoop_cluster():
     #execute(deploy_hadoop_config)
     #execute(setup_hadoop_master_slave)
     #execute(start_services_hadoop_master)
+    #execute(run_pi_test)
+    #execute(stop_services_hadoop_master)
     #execute(restart_services_hadoop_master)
-    execute(stop_services_hadoop_master)
+    #execute(run_pi_test)
+    execute(run_wordcount_test)
 
 
 
